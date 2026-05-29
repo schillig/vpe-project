@@ -1,7 +1,7 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 0.57
+Project: Vibe Programming Environment (VPE) - Build 0.58
 Target OS: Linux Mint Only
-Description: Clean Room Terminal Architecture + Automated Git Initialization & Shield Generation.
+Description: Clean Room Terminal Architecture + Automated Git Initialization & Shield Generation (Anti-Freeze Patch).
 Architecture: PySide6 (Qt) with isolated QFileSystemModels per environment tab.
 """
 
@@ -994,6 +994,10 @@ Categories=Development;
         
         if reply == QMessageBox.Yes:
             try:
+                # PAUSE TIMER to prevent PySide thread from locking while git indexes the file system
+                self.git_timer.stop()
+                
+                # Write shield first
                 subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
                 
                 gitignore_path = os.path.join(self.root_path, ".gitignore")
@@ -1001,12 +1005,17 @@ Categories=Development;
                     with open(gitignore_path, "w") as f:
                         f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
                 
+                # Update UI
                 self.file_model.set_repo_root(self.root_path)
                 self.update_git_and_redraw()
+                
+                # Restart TIMER
+                self.git_timer.start(2000)
                 
                 QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
                 
             except Exception as e:
+                self.git_timer.start(2000)
                 QMessageBox.critical(self, "Error", f"Could not initialize Git:\n{e}")
 
     def save_current_file(self):
@@ -1473,6 +1482,10 @@ class WebEnvironment(QWidget):
         
         if reply == QMessageBox.Yes:
             try:
+                # PAUSE TIMER to prevent PySide thread from locking while git indexes the file system
+                self.git_timer.stop()
+                
+                # Write shield first
                 subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
                 
                 gitignore_path = os.path.join(self.root_path, ".gitignore")
@@ -1480,12 +1493,17 @@ class WebEnvironment(QWidget):
                     with open(gitignore_path, "w") as f:
                         f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
                 
+                # Update UI
                 self.file_model.set_repo_root(self.root_path)
                 self.update_git_and_redraw()
+                
+                # Restart TIMER
+                self.git_timer.start(2000)
                 
                 QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
                 
             except Exception as e:
+                self.git_timer.start(2000)
                 QMessageBox.critical(self, "Error", f"Could not initialize Git:\n{e}")
 
     def save_current_file(self):
