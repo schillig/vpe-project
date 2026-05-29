@@ -1,7 +1,7 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 0.56
+Project: Vibe Programming Environment (VPE) - Build 0.57
 Target OS: Linux Mint Only
-Description: Clean Room Terminal Architecture (Native cwd booting, no ghost typing).
+Description: Clean Room Terminal Architecture + Automated Git Initialization & Shield Generation.
 Architecture: PySide6 (Qt) with isolated QFileSystemModels per environment tab.
 """
 
@@ -210,7 +210,6 @@ class CodeEditor(QPlainTextEdit):
 class NativeLinuxTerminal(QPlainTextEdit):
     ANSI_ESCAPE = re.compile(r'(?:\x1B\[[0-?]*[ -/]*[@-~])|(?:\x1B\].*?(?:\x07|\x1B\\))')
 
-    # --- UPDATED: Accepts native cwd parameter ---
     def __init__(self, cwd=None):
         super().__init__()
         self.setStyleSheet("background-color: #1e1e1e; color: #dcdcdc; font-family: 'Ubuntu Mono', 'Monospace'; font-size: 11pt; border: none;")
@@ -219,7 +218,6 @@ class NativeLinuxTerminal(QPlainTextEdit):
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
         
-        # Passes the Current Working Directory directly to the Linux Kernel
         self.process = subprocess.Popen(
             ["/bin/bash"], 
             stdin=self.slave_fd, 
@@ -229,7 +227,6 @@ class NativeLinuxTerminal(QPlainTextEdit):
             env=env,
             cwd=cwd
         )
-        # ---------------------------------------------
         
         self.notifier = QSocketNotifier(self.master_fd, QSocketNotifier.Read)
         self.notifier.activated.connect(self.read_shell_output)
@@ -499,6 +496,9 @@ class PythonEnvironment(QWidget):
         
         action_new_proj = self.workspace_menu.addAction("📁 Create New Project")
         action_new_proj.triggered.connect(self.create_new_folder)
+
+        action_init_git = self.workspace_menu.addAction("🛠️ Initialize Git Repo")
+        action_init_git.triggered.connect(self.initialize_git_repo)
         
         self.workspace_menu.addSeparator()
         
@@ -662,10 +662,8 @@ class PythonEnvironment(QWidget):
 
         self.terminal_layout.addWidget(self.terminal_toolbar)
 
-        # --- UPDATED: Pass cwd directly into the Terminal boot sequence ---
         self.terminal = NativeLinuxTerminal(cwd=self.root_path)
         self.terminal_layout.addWidget(self.terminal)
-        # ------------------------------------------------------------------
 
         self.edit_term_splitter.addWidget(self.editor_container)
         self.edit_term_splitter.addWidget(self.terminal_container) 
@@ -864,11 +862,9 @@ Categories=Development;
         self.editor.document().setModified(False)
         self.venv_toggle_btn.setText("🟢 Start venv") 
         
-        # --- NEW: Rebuild Terminal on Folder Change (Clean Room) ---
         self.terminal.deleteLater()
         self.terminal = NativeLinuxTerminal(cwd=self.root_path)
         self.terminal_layout.addWidget(self.terminal)
-        # -----------------------------------------------------------
         
         self.auto_open_main_file()
 
@@ -986,6 +982,33 @@ Categories=Development;
             target_dir = QDir(self.root_path)
             if not target_dir.exists(folder_name): target_dir.mkdir(folder_name)
 
+    def initialize_git_repo(self):
+        git_path = os.path.join(self.root_path, ".git")
+        if os.path.exists(git_path):
+            QMessageBox.information(self, "Git", "This workspace is already a Git repository!")
+            return
+
+        reply = QMessageBox.question(self, "Initialize Git?", 
+                                     f"Do you want to initialize a new Git repository in:\n{os.path.basename(self.root_path)}?\n\n(This will also auto-generate a protective .gitignore shield)",
+                                     QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
+                
+                gitignore_path = os.path.join(self.root_path, ".gitignore")
+                if not os.path.exists(gitignore_path):
+                    with open(gitignore_path, "w") as f:
+                        f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
+                
+                self.file_model.set_repo_root(self.root_path)
+                self.update_git_and_redraw()
+                
+                QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not initialize Git:\n{e}")
+
     def save_current_file(self):
         content = self.editor.toPlainText()
         if not self.current_file_path:
@@ -1035,6 +1058,9 @@ class WebEnvironment(QWidget):
         
         action_new_proj = self.workspace_menu.addAction("📁 Create New Project")
         action_new_proj.triggered.connect(self.create_new_folder)
+
+        action_init_git = self.workspace_menu.addAction("🛠️ Initialize Git Repo")
+        action_init_git.triggered.connect(self.initialize_git_repo)
         
         self.workspace_menu.addSeparator()
         
@@ -1185,10 +1211,8 @@ class WebEnvironment(QWidget):
 
         self.terminal_layout.addWidget(self.terminal_toolbar)
 
-        # --- UPDATED: Pass cwd directly into the Terminal boot sequence ---
         self.terminal = NativeLinuxTerminal(cwd=self.root_path)
         self.terminal_layout.addWidget(self.terminal)
-        # ------------------------------------------------------------------
 
         self.edit_term_splitter.addWidget(self.editor_container)
         self.edit_term_splitter.addWidget(self.terminal_container)
@@ -1338,11 +1362,9 @@ class WebEnvironment(QWidget):
         self.current_file_path = None
         self.editor.document().setModified(False)
         
-        # --- NEW: Rebuild Terminal on Folder Change (Clean Room) ---
         self.terminal.deleteLater()
         self.terminal = NativeLinuxTerminal(cwd=self.root_path)
         self.terminal_layout.addWidget(self.terminal)
-        # -----------------------------------------------------------
         
         self.auto_open_main_file()
 
@@ -1438,6 +1460,33 @@ class WebEnvironment(QWidget):
         if ok and folder_name:
             target_dir = QDir(self.root_path)
             if not target_dir.exists(folder_name): target_dir.mkdir(folder_name)
+
+    def initialize_git_repo(self):
+        git_path = os.path.join(self.root_path, ".git")
+        if os.path.exists(git_path):
+            QMessageBox.information(self, "Git", "This workspace is already a Git repository!")
+            return
+
+        reply = QMessageBox.question(self, "Initialize Git?", 
+                                     f"Do you want to initialize a new Git repository in:\n{os.path.basename(self.root_path)}?\n\n(This will also auto-generate a protective .gitignore shield)",
+                                     QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
+                
+                gitignore_path = os.path.join(self.root_path, ".gitignore")
+                if not os.path.exists(gitignore_path):
+                    with open(gitignore_path, "w") as f:
+                        f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
+                
+                self.file_model.set_repo_root(self.root_path)
+                self.update_git_and_redraw()
+                
+                QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not initialize Git:\n{e}")
 
     def save_current_file(self):
         content = self.editor.toPlainText()
