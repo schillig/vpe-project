@@ -1,7 +1,7 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 0.60
+Project: Vibe Programming Environment (VPE) - Build 0.62
 Target OS: Linux Mint Only
-Description: Added Help Menu, User Guide, and About dialog. Contains full Nemo-style File Manager capabilities, Git protection, and Clean Room Terminal Architecture.
+Description: Updated Help Menu documentation to accurately reflect Main Controls toolbar.
 Architecture: PySide6 (Qt) with isolated QFileSystemModels per environment tab.
 """
 
@@ -1115,8 +1115,6 @@ Categories=Development;
             self.update_git_and_redraw()
             return True
         except: return False
-
-
 class WebEnvironment(QWidget):
     def __init__(self, root_path: str):
         super().__init__()
@@ -1775,6 +1773,15 @@ class VPEWindow(QMainWindow):
     def show_user_guide(self):
         guide_text = """
         <h3>VPE User Guide</h3>
+        
+        <b>🧰 Main Controls (Top Toolbar)</b><br>
+        • <b>Save Env (Ctrl+S):</b> Instantly saves the currently active file in the editor to your workspace.<br>
+        • <b>Area Snip:</b> Triggers the native Linux Mint screenshot tool, letting you click and drag to copy a specific screen area directly to your clipboard.<br>
+        • <b>Copy Tree:</b> Generates a formatted, text-based visual tree of your entire project directory and copies it to your clipboard.<br>
+        • <b>Git Pull:</b> Fetches and merges the latest changes from your connected remote GitHub repository.<br>
+        • <b>Git Push:</b> Commits your current local changes and pushes them safely up to your remote GitHub repository.<br>
+        • <b>Help:</b> Opens this comprehensive user guide and the About VPE dialog.<br><br>
+
         <b>🗂️ Workspace Menu</b><br>
         • <b>Create New Project:</b> Makes a new folder inside your current workspace.<br>
         • <b>Initialize Git Repo:</b> Automatically runs 'git init' and generates a custom '.gitignore' shield to prevent virtual environments (.venv) and buildozer caches from uploading to GitHub.<br>
@@ -1803,7 +1810,7 @@ class VPEWindow(QMainWindow):
     def show_about_dialog(self):
         about_text = """
         <h3>Vibe Programming Environment (VPE)</h3>
-        <b>Build:</b> 0.60<br>
+        <b>Build:</b> 0.62<br>
         <b>Date:</b> July 10, 2026<br><br>
         <b>OS Target:</b> Linux Mint<br>
         <b>Framework:</b> PySide6 (Qt)<br><br>
