@@ -1,4 +1,4 @@
-#!/home/main/Development/VPE/.venv/bin/python3
+#!/home/main/Development/Python/VPE/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

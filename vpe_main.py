@@ -1,12 +1,13 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 0.58
+Project: Vibe Programming Environment (VPE) - Build 0.60
 Target OS: Linux Mint Only
-Description: Clean Room Terminal Architecture + Automated Git Initialization & Shield Generation (Anti-Freeze Patch).
+Description: Added Help Menu, User Guide, and About dialog. Contains full Nemo-style File Manager capabilities, Git protection, and Clean Room Terminal Architecture.
 Architecture: PySide6 (Qt) with isolated QFileSystemModels per environment tab.
 """
 
 import sys
 import os
+import shutil
 
 # --- SYSTEM PATCHES (Linux Mint Qt6 Fixes) ---
 os.environ["QT_API"] = "pyside6"                                        
@@ -113,7 +114,7 @@ class WebHighlighter(QSyntaxHighlighter):
         commentFormat = QTextCharFormat()
         commentFormat.setForeground(QColor("#5c6370"))
         commentFormat.setFontItalic(True)
-        self.highlightingRules.append((QRegularExpression(""), commentFormat))
+        self.highlightingRules.append((QRegularExpression("<!--.*?-->"), commentFormat))
         self.highlightingRules.append((QRegularExpression("//[^\n]*"), commentFormat))
         self.highlightingRules.append((QRegularExpression("/\\*.*?\\*/"), commentFormat))
 
@@ -523,6 +524,9 @@ class PythonEnvironment(QWidget):
         self.tree.setHeaderHidden(True) 
         self.tree.setIconSize(QSize(32, 32))
         
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_context_menu)
+        
         self.run_delegate = RunFileDelegate(env_type="python")
         self.run_delegate.run_requested.connect(self.execute_script)
         self.tree.setItemDelegateForColumn(0, self.run_delegate)
@@ -676,6 +680,92 @@ class PythonEnvironment(QWidget):
         layout.addWidget(self.workspace_splitter)
 
         self.auto_open_main_file()
+
+    # --- NEMO CONTEXT MENU LOGIC ---
+    def show_context_menu(self, position):
+        index = self.tree.indexAt(position)
+        target_path = self.file_model.filePath(index) if index.isValid() else self.root_path
+        is_dir = os.path.isdir(target_path)
+
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu { background-color: #282c34; color: #abb2bf; border: 1px solid #181a1f; }
+            QMenu::item { padding: 6px 20px; font-weight: bold; }
+            QMenu::item:selected { background-color: #3e4451; color: #ffffff; }
+        """)
+
+        new_file_act = menu.addAction("📄 New File")
+        new_folder_act = menu.addAction("📁 New Folder")
+        menu.addSeparator()
+        rename_act = menu.addAction("✏️ Rename...")
+        delete_act = menu.addAction("🗑️ Move to Trash")
+        menu.addSeparator()
+        nemo_act = menu.addAction("📂 Open in Nemo")
+
+        if not index.isValid() or target_path == self.root_path:
+            rename_act.setEnabled(False)
+            delete_act.setEnabled(False)
+
+        action = menu.exec(self.tree.viewport().mapToGlobal(position))
+
+        if action == new_file_act:
+            self.ctx_new_file(target_path, is_dir)
+        elif action == new_folder_act:
+            self.ctx_new_folder(target_path, is_dir)
+        elif action == rename_act:
+            self.ctx_rename(target_path)
+        elif action == delete_act:
+            self.ctx_delete(target_path)
+        elif action == nemo_act:
+            self.ctx_open_nemo(target_path, is_dir)
+
+    def ctx_new_file(self, path, is_dir):
+        parent_dir = path if is_dir else os.path.dirname(path)
+        name, ok = QInputDialog.getText(self, "New File", "Enter file name:")
+        if ok and name:
+            full_path = os.path.join(parent_dir, name)
+            if not os.path.exists(full_path):
+                open(full_path, 'w').close()
+                self.update_git_and_redraw()
+                if not self.check_unsaved_changes(): return
+                with open(full_path, 'r') as f: self.editor.setPlainText(f.read())
+                self.current_file_path = full_path
+                self.editor.document().setModified(False)
+
+    def ctx_new_folder(self, path, is_dir):
+        parent_dir = path if is_dir else os.path.dirname(path)
+        name, ok = QInputDialog.getText(self, "New Folder", "Enter folder name:")
+        if ok and name:
+            full_path = os.path.join(parent_dir, name)
+            if not os.path.exists(full_path):
+                os.makedirs(full_path)
+                self.update_git_and_redraw()
+
+    def ctx_rename(self, path):
+        old_name = os.path.basename(path)
+        parent_dir = os.path.dirname(path)
+        new_name, ok = QInputDialog.getText(self, "Rename", "Enter new name:", text=old_name)
+        if ok and new_name and new_name != old_name:
+            new_path = os.path.join(parent_dir, new_name)
+            os.rename(path, new_path)
+            if self.current_file_path == path:
+                self.current_file_path = new_path
+            self.update_git_and_redraw()
+
+    def ctx_delete(self, path):
+        name = os.path.basename(path)
+        reply = QMessageBox.question(self, "Move to Trash", f"Are you sure you want to move '{name}' to the Trash?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            subprocess.run(["gio", "trash", path])
+            if self.current_file_path == path:
+                self.editor.clear()
+                self.current_file_path = None
+            self.update_git_and_redraw()
+
+    def ctx_open_nemo(self, path, is_dir):
+        target = path if is_dir else os.path.dirname(path)
+        subprocess.Popen(["nemo", target])
+    # --------------------------------
 
     def auto_open_main_file(self):
         target_file = None
@@ -994,10 +1084,8 @@ Categories=Development;
         
         if reply == QMessageBox.Yes:
             try:
-                # PAUSE TIMER to prevent PySide thread from locking while git indexes the file system
                 self.git_timer.stop()
                 
-                # Write shield first
                 subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
                 
                 gitignore_path = os.path.join(self.root_path, ".gitignore")
@@ -1005,13 +1093,10 @@ Categories=Development;
                     with open(gitignore_path, "w") as f:
                         f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
                 
-                # Update UI
                 self.file_model.set_repo_root(self.root_path)
                 self.update_git_and_redraw()
                 
-                # Restart TIMER
                 self.git_timer.start(2000)
-                
                 QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
                 
             except Exception as e:
@@ -1093,6 +1178,9 @@ class WebEnvironment(QWidget):
         self.tree.setColumnHidden(3, True)
         self.tree.setHeaderHidden(True) 
         self.tree.setIconSize(QSize(32, 32))
+        
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_context_menu)
         
         self.run_delegate = RunFileDelegate(env_type="web")
         self.run_delegate.run_requested.connect(self.execute_script)
@@ -1198,7 +1286,7 @@ class WebEnvironment(QWidget):
         font = QFont("Ubuntu Mono", 12)
         font.setStyleHint(QFont.Monospace)
         self.editor.setFont(font)
-        self.editor.setPlaceholderText("\n<h1>Hello Web Vibe!</h1>")
+        self.editor.setPlaceholderText("<!-- Write HTML here! It will live-render to the right -->\n<h1>Hello Web Vibe!</h1>")
         self.highlighter = WebHighlighter(self.editor.document())
         self.editor_layout.addWidget(self.editor)
         
@@ -1244,6 +1332,92 @@ class WebEnvironment(QWidget):
         self.update_live_preview()
         
         self.auto_open_main_file()
+
+    # --- NEMO CONTEXT MENU LOGIC ---
+    def show_context_menu(self, position):
+        index = self.tree.indexAt(position)
+        target_path = self.file_model.filePath(index) if index.isValid() else self.root_path
+        is_dir = os.path.isdir(target_path)
+
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu { background-color: #282c34; color: #abb2bf; border: 1px solid #181a1f; }
+            QMenu::item { padding: 6px 20px; font-weight: bold; }
+            QMenu::item:selected { background-color: #3e4451; color: #ffffff; }
+        """)
+
+        new_file_act = menu.addAction("📄 New File")
+        new_folder_act = menu.addAction("📁 New Folder")
+        menu.addSeparator()
+        rename_act = menu.addAction("✏️ Rename...")
+        delete_act = menu.addAction("🗑️ Move to Trash")
+        menu.addSeparator()
+        nemo_act = menu.addAction("📂 Open in Nemo")
+
+        if not index.isValid() or target_path == self.root_path:
+            rename_act.setEnabled(False)
+            delete_act.setEnabled(False)
+
+        action = menu.exec(self.tree.viewport().mapToGlobal(position))
+
+        if action == new_file_act:
+            self.ctx_new_file(target_path, is_dir)
+        elif action == new_folder_act:
+            self.ctx_new_folder(target_path, is_dir)
+        elif action == rename_act:
+            self.ctx_rename(target_path)
+        elif action == delete_act:
+            self.ctx_delete(target_path)
+        elif action == nemo_act:
+            self.ctx_open_nemo(target_path, is_dir)
+
+    def ctx_new_file(self, path, is_dir):
+        parent_dir = path if is_dir else os.path.dirname(path)
+        name, ok = QInputDialog.getText(self, "New File", "Enter file name:")
+        if ok and name:
+            full_path = os.path.join(parent_dir, name)
+            if not os.path.exists(full_path):
+                open(full_path, 'w').close()
+                self.update_git_and_redraw()
+                if not self.check_unsaved_changes(): return
+                with open(full_path, 'r') as f: self.editor.setPlainText(f.read())
+                self.current_file_path = full_path
+                self.editor.document().setModified(False)
+
+    def ctx_new_folder(self, path, is_dir):
+        parent_dir = path if is_dir else os.path.dirname(path)
+        name, ok = QInputDialog.getText(self, "New Folder", "Enter folder name:")
+        if ok and name:
+            full_path = os.path.join(parent_dir, name)
+            if not os.path.exists(full_path):
+                os.makedirs(full_path)
+                self.update_git_and_redraw()
+
+    def ctx_rename(self, path):
+        old_name = os.path.basename(path)
+        parent_dir = os.path.dirname(path)
+        new_name, ok = QInputDialog.getText(self, "Rename", "Enter new name:", text=old_name)
+        if ok and new_name and new_name != old_name:
+            new_path = os.path.join(parent_dir, new_name)
+            os.rename(path, new_path)
+            if self.current_file_path == path:
+                self.current_file_path = new_path
+            self.update_git_and_redraw()
+
+    def ctx_delete(self, path):
+        name = os.path.basename(path)
+        reply = QMessageBox.question(self, "Move to Trash", f"Are you sure you want to move '{name}' to the Trash?", QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            subprocess.run(["gio", "trash", path])
+            if self.current_file_path == path:
+                self.editor.clear()
+                self.current_file_path = None
+            self.update_git_and_redraw()
+
+    def ctx_open_nemo(self, path, is_dir):
+        target = path if is_dir else os.path.dirname(path)
+        subprocess.Popen(["nemo", target])
+    # --------------------------------
 
     def auto_open_main_file(self):
         target_file = None
@@ -1482,10 +1656,8 @@ class WebEnvironment(QWidget):
         
         if reply == QMessageBox.Yes:
             try:
-                # PAUSE TIMER to prevent PySide thread from locking while git indexes the file system
                 self.git_timer.stop()
                 
-                # Write shield first
                 subprocess.run(["git", "init"], cwd=self.root_path, check=True, capture_output=True)
                 
                 gitignore_path = os.path.join(self.root_path, ".gitignore")
@@ -1493,13 +1665,10 @@ class WebEnvironment(QWidget):
                     with open(gitignore_path, "w") as f:
                         f.write(".venv/\nvenv/\n__pycache__/\n.buildozer/\n")
                 
-                # Update UI
                 self.file_model.set_repo_root(self.root_path)
                 self.update_git_and_redraw()
                 
-                # Restart TIMER
                 self.git_timer.start(2000)
-                
                 QMessageBox.information(self, "Success", "✅ Git repository initialized!\n✅ Protective .gitignore shield generated.")
                 
             except Exception as e:
@@ -1555,6 +1724,24 @@ class VPEWindow(QMainWindow):
         git_push_action.triggered.connect(self.trigger_github_push)
         self.toolbar.addAction(git_push_action)
 
+        self.toolbar.addSeparator()
+        
+        self.help_menu_btn = QToolButton(self)
+        self.help_menu_btn.setText("❓ Help")
+        self.help_menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self.help_menu = QMenu(self.help_menu_btn)
+        
+        action_user_guide = self.help_menu.addAction("📖 VPE User Guide")
+        action_user_guide.triggered.connect(self.show_user_guide)
+        
+        self.help_menu.addSeparator()
+        
+        action_about = self.help_menu.addAction("ℹ️ About VPE")
+        action_about.triggered.connect(self.show_about_dialog)
+        
+        self.help_menu_btn.setMenu(self.help_menu)
+        self.toolbar.addWidget(self.help_menu_btn)
+
         self.tab_manager = QTabWidget()
         self.tab_manager.setStyleSheet("""
             QTabBar::tab { height: 35px; width: 160px; font-weight: bold; background: #2d2d2d; color: #8b9eb0;}
@@ -1584,6 +1771,49 @@ class VPEWindow(QMainWindow):
         
         self.web_env = WebEnvironment(root_path=web_root)
         self.tab_manager.addTab(self.web_env, "🌐 Web Vibe")
+
+    def show_user_guide(self):
+        guide_text = """
+        <h3>VPE User Guide</h3>
+        <b>🗂️ Workspace Menu</b><br>
+        • <b>Create New Project:</b> Makes a new folder inside your current workspace.<br>
+        • <b>Initialize Git Repo:</b> Automatically runs 'git init' and generates a custom '.gitignore' shield to prevent virtual environments (.venv) and buildozer caches from uploading to GitHub.<br>
+        • <b>Show Hidden Files:</b> Toggles the visibility of files starting with a dot (like .env or .gitignore).<br><br>
+        
+        <b>📄 File & ✏️ Edit Menus</b><br>
+        • Standard text editing tools. <b>Print Preview</b> allows you to verify code layout before sending to a printer or PDF.<br><br>
+        
+        <b>🔍 Search Menu</b><br>
+        • Allows you to locate and systematically replace variables or text across the active document.<br><br>
+
+        <b>💻 Terminal Tools</b><br>
+        • <b>Build venv:</b> Automatically creates an isolated Python Virtual Environment and installs dependencies if a requirements.txt file exists.<br>
+        • <b>Make App:</b> Compiles your current Python script into an executable Linux Mint shortcut and adds it to your desktop Start Menu.<br><br>
+        
+        <b>📁 File Tree (Right-Click)</b><br>
+        • <b>Move to Trash:</b> Hooks directly into Linux Mint's native 'gio trash' system, safely moving files to your recycle bin rather than permanently deleting them.<br>
+        • <b>Open in Nemo:</b> Opens the selected folder natively in the Linux Mint file manager.
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle("VPE User Guide")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(guide_text)
+        msg.exec()
+
+    def show_about_dialog(self):
+        about_text = """
+        <h3>Vibe Programming Environment (VPE)</h3>
+        <b>Build:</b> 0.60<br>
+        <b>Date:</b> July 10, 2026<br><br>
+        <b>OS Target:</b> Linux Mint<br>
+        <b>Framework:</b> PySide6 (Qt)<br><br>
+        VPE is a dual-environment, clean-room IDE designed specifically for rapid Python and Web development on Linux Mint. It features automated virtual environment management, integrated Native Bash terminals, live HTML rendering, and custom Git integration.
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About VPE")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(about_text)
+        msg.exec()
 
     def closeEvent(self, event):
         if not self.python_env.check_unsaved_changes():
