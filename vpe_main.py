@@ -1,7 +1,7 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 1.0.2
+Project: Vibe Programming Environment (VPE) - Build 1.0.3
 Target OS: Linux Mint Only
-Description: Restored the Main Controls Toolbar for 1-click access to Snipping, Project Tree, and Git sync.
+Description: Added "Paste & Save" 1-click update button to the Main Controls toolbar for rapid AI iteration.
 Architecture: PySide6 (Qt) Unified Interface.
 """
 
@@ -89,7 +89,7 @@ class EditorHighlighter(QSyntaxHighlighter):
             for word in keywords: self.rules.append((QRegularExpression(word), kw_fmt))
             self.rules.append((QRegularExpression("\".*?\""), str_fmt))
             self.rules.append((QRegularExpression("'.*?'"), str_fmt))
-            self.rules.append((QRegularExpression("<!--.*?-->"), comment_fmt))
+            self.rules.append((QRegularExpression(""), comment_fmt))
             self.rules.append((QRegularExpression("//[^\n]*"), comment_fmt))
 
     def highlightBlock(self, text):
@@ -259,7 +259,7 @@ class VPEWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         QApplication.setApplicationName("VPE")
-        self.setWindowTitle("VPE 1.0.2 - Professional Edition")
+        self.setWindowTitle("VPE 1.0.3 - Professional Edition")
         self.resize(1400, 900)
         self.settings = QSettings("VibeCorp", "VPE_IDE")
         self.current_workspace = self.settings.value("last_workspace", DEV_DIR)
@@ -296,6 +296,13 @@ class VPEWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("❌ Exit", self.close)
 
+        # Tools Menu
+        tools_menu = menubar.addMenu("Tools")
+        snip_act = tools_menu.addAction("📸 Area Snip (Screenshot)")
+        snip_act.setShortcut("Ctrl+Shift+S")
+        snip_act.triggered.connect(self.trigger_screenshot)
+        tools_menu.addAction("🌲 Copy Project Tree", self.copy_project_tree)
+
         # Environment Menu
         env_menu = menubar.addMenu("Environment")
         env_menu.addAction("📦 Build Virtual Env", self.build_venv)
@@ -322,6 +329,12 @@ class VPEWindow(QMainWindow):
         save_act.setShortcut("Ctrl+S")
         save_act.triggered.connect(self.save_active_tab)
         self.toolbar.addAction(save_act)
+        
+        # --- NEW PASTE & SAVE BUTTON ---
+        paste_save_act = QAction("📋 Paste & Save", self)
+        paste_save_act.triggered.connect(self.paste_and_save)
+        self.toolbar.addAction(paste_save_act)
+        # -------------------------------
         
         self.toolbar.addSeparator()
 
@@ -387,7 +400,7 @@ class VPEWindow(QMainWindow):
         main_layout.addWidget(self.main_splitter)
         self.setCentralWidget(central_widget)
 
-    # --- RESTORED TOOLS ---
+    # --- RESTORED TOOLS & WORKFLOW MACROS ---
     def trigger_screenshot(self):
         try:
             subprocess.Popen(["gnome-screenshot", "-a", "-c"])
@@ -415,6 +428,25 @@ class VPEWindow(QMainWindow):
         final_tree = f"Project: {os.path.basename(self.current_workspace)}/\n" + build_tree(self.current_workspace)
         QApplication.clipboard().setText(final_tree)
         self.statusBar().showMessage("🌲 Project Tree copied to clipboard!", 4000)
+
+    def paste_and_save(self):
+        editor = self.editor_tabs.currentWidget()
+        if not editor:
+            QMessageBox.warning(self, "No Active Tab", "Please open a file to paste code into.")
+            return
+            
+        clipboard_text = QApplication.clipboard().text()
+        if not clipboard_text:
+            self.statusBar().showMessage("⚠️ Clipboard is empty!", 4000)
+            return
+            
+        # Select all existing text and overwrite with clipboard
+        editor.selectAll()
+        editor.insertPlainText(clipboard_text)
+        
+        # Save immediately
+        self.save_active_tab()
+        self.statusBar().showMessage(f"✅ Pasted and saved to {os.path.basename(editor.file_path)}!", 4000)
 
     # --- TAB & FILE MANAGEMENT ---
     def handle_tree_click(self, index):
@@ -497,7 +529,7 @@ class VPEWindow(QMainWindow):
         self.terminal.deleteLater()
         self.terminal = NativeLinuxTerminal(cwd=path)
         self.center_splitter.addWidget(self.terminal)
-        self.setWindowTitle(f"VPE 1.0.2 - {os.path.basename(path)}")
+        self.setWindowTitle(f"VPE 1.0.3 - {os.path.basename(path)}")
         self.statusBar().showMessage(f"Workspace loaded: {path}")
 
     def create_new_project(self):
