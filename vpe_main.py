@@ -1,7 +1,7 @@
 """
-Project: Vibe Programming Environment (VPE) - Build 1.0.1
+Project: Vibe Programming Environment (VPE) - Build 1.0.2
 Target OS: Linux Mint Only
-Description: Restored Area Snip and Copy Tree to a new Tools menu. Clarified Workspace/Project switching in the File menu.
+Description: Restored the Main Controls Toolbar for 1-click access to Snipping, Project Tree, and Git sync.
 Architecture: PySide6 (Qt) Unified Interface.
 """
 
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QSplitter,
                              QVBoxLayout, QWidget, QTextEdit, QTabWidget,
                              QPlainTextEdit, QMessageBox, QFileSystemModel, 
                              QTreeView, QMenu, QInputDialog, QFileDialog, 
-                             QStyledItemDelegate)
+                             QStyledItemDelegate, QToolBar)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import Qt, QSocketNotifier, QDir, QRegularExpression, QSize, Signal, QRect, QTimer, QUrl, QSettings
 from PySide6.QtGui import (QAction, QFont, QKeySequence, QSyntaxHighlighter, QTextCharFormat, 
@@ -36,6 +36,9 @@ GLOBAL_THEME = """
     QMenu { background-color: #282c34; border: 1px solid #181a1f; }
     QMenu::item { padding: 6px 25px; }
     QMenu::item:selected { background-color: #3e4451; }
+    QToolBar { background-color: #21252b; border-bottom: 1px solid #181a1f; padding: 3px; spacing: 5px; }
+    QToolButton { color: #abb2bf; font-weight: bold; font-size: 10pt; padding: 5px 10px; border-radius: 4px; }
+    QToolButton:hover { background-color: #3e4451; color: #ffffff; }
     QTreeView { background-color: #21252b; border: none; font-size: 10pt; outline: none; }
     QTreeView::item:selected { background-color: #2c313a; color: #ffffff; }
     QTreeView::item:hover { background-color: #2c313a; }
@@ -86,7 +89,7 @@ class EditorHighlighter(QSyntaxHighlighter):
             for word in keywords: self.rules.append((QRegularExpression(word), kw_fmt))
             self.rules.append((QRegularExpression("\".*?\""), str_fmt))
             self.rules.append((QRegularExpression("'.*?'"), str_fmt))
-            self.rules.append((QRegularExpression(""), comment_fmt))
+            self.rules.append((QRegularExpression("<!--.*?-->"), comment_fmt))
             self.rules.append((QRegularExpression("//[^\n]*"), comment_fmt))
 
     def highlightBlock(self, text):
@@ -256,12 +259,13 @@ class VPEWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         QApplication.setApplicationName("VPE")
-        self.setWindowTitle("VPE 1.0 - Professional Edition")
+        self.setWindowTitle("VPE 1.0.2 - Professional Edition")
         self.resize(1400, 900)
         self.settings = QSettings("VibeCorp", "VPE_IDE")
         self.current_workspace = self.settings.value("last_workspace", DEV_DIR)
         
         self.setup_menus()
+        self.setup_toolbar()
         self.setup_ui()
         self.set_workspace(self.current_workspace)
 
@@ -292,13 +296,6 @@ class VPEWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("❌ Exit", self.close)
 
-        # Tools Menu (Restored Features)
-        tools_menu = menubar.addMenu("Tools")
-        snip_act = tools_menu.addAction("📸 Area Snip (Screenshot)")
-        snip_act.setShortcut("Ctrl+Shift+S")
-        snip_act.triggered.connect(self.trigger_screenshot)
-        tools_menu.addAction("🌲 Copy Project Tree", self.copy_project_tree)
-
         # Environment Menu
         env_menu = menubar.addMenu("Environment")
         env_menu.addAction("📦 Build Virtual Env", self.build_venv)
@@ -315,6 +312,37 @@ class VPEWindow(QMainWindow):
         # View Menu
         view_menu = menubar.addMenu("View")
         view_menu.addAction("👁️ Toggle Hidden Files", self.toggle_hidden).setCheckable(True)
+
+    def setup_toolbar(self):
+        self.toolbar = QToolBar("Main Controls")
+        self.toolbar.setMovable(False)
+        self.addToolBar(self.toolbar)
+
+        save_act = QAction("💾 Save File", self)
+        save_act.setShortcut("Ctrl+S")
+        save_act.triggered.connect(self.save_active_tab)
+        self.toolbar.addAction(save_act)
+        
+        self.toolbar.addSeparator()
+
+        snip_act = QAction("📸 Area Snip", self)
+        snip_act.setShortcut("Ctrl+Shift+S")
+        snip_act.triggered.connect(self.trigger_screenshot)
+        self.toolbar.addAction(snip_act)
+
+        tree_act = QAction("🌲 Copy Tree", self)
+        tree_act.triggered.connect(self.copy_project_tree)
+        self.toolbar.addAction(tree_act)
+        
+        self.toolbar.addSeparator()
+
+        pull_act = QAction("📥 Git Pull", self)
+        pull_act.triggered.connect(self.git_pull)
+        self.toolbar.addAction(pull_act)
+
+        push_act = QAction("📤 Git Push", self)
+        push_act.triggered.connect(self.git_push)
+        self.toolbar.addAction(push_act)
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -469,7 +497,7 @@ class VPEWindow(QMainWindow):
         self.terminal.deleteLater()
         self.terminal = NativeLinuxTerminal(cwd=path)
         self.center_splitter.addWidget(self.terminal)
-        self.setWindowTitle(f"VPE 1.0 - {os.path.basename(path)}")
+        self.setWindowTitle(f"VPE 1.0.2 - {os.path.basename(path)}")
         self.statusBar().showMessage(f"Workspace loaded: {path}")
 
     def create_new_project(self):
